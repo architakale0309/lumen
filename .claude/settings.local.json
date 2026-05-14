@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Bash(winget show *)",
+      "PowerShell(winget list *)",
+      "PowerShell(winget uninstall *)"
+    ]
+  }
+}
