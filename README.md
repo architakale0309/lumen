@@ -12,7 +12,7 @@ https://lumen-pjrt.onrender.com/#token=lumen-demo-dont-spam
 
 > Free-tier hosting — first request after idle takes ~30s to wake. Please don't spam: this runs on a personal Gemini API quota.
 
-![Lumen screenshot](docs/screenshot.png)
+![Lumen screenshot](docs/demo-search-chat.png)
 
 ## What you're seeing
 
@@ -38,6 +38,22 @@ npm run dev
 Get a Gemini API key at <https://aistudio.google.com/apikey> (free tier available).
 
 Open <http://localhost:5173>. The server runs on `:8787` and the client proxies `/api` to it.
+
+## Running tests
+
+Server-side unit tests use [Vitest](https://vitest.dev/). From the repo root:
+
+```bash
+npm test                          # run all tests once
+npm --workspace server run test:watch   # watch mode while iterating
+```
+
+What's covered:
+
+- `server/src/sentenceBuffer.test.ts` — regex sentence segmenter, including abbreviation guards (e.g. "Dr.", "U.S.") that should not trigger a split.
+- `server/src/pageFetcher.test.ts` — Readability extraction + snippet matching against source HTML.
+
+Tests do not call Gemini — no API key required to run them.
 
 ## Configuration (server\.env)
 
