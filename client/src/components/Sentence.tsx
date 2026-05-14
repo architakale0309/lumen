@@ -9,10 +9,10 @@ type Props = {
 };
 
 const STATUS_STYLES: Record<NonNullable<Verdict['status']>, string> = {
-  supported: 'bg-emerald-50 border-b-2 border-emerald-400',
-  partial: 'bg-amber-50 border-b-2 border-amber-400',
-  unsupported: 'bg-rose-50 border-b-2 border-rose-300',
-  contradicted: 'bg-rose-100 border-b-2 border-rose-500',
+  supported: 'bg-emerald-50/70 decoration-emerald-400 decoration-2 underline underline-offset-4',
+  partial: 'bg-amber-50/70 decoration-amber-400 decoration-2 underline underline-offset-4',
+  unsupported: 'bg-rose-50/70 decoration-rose-300 decoration-2 underline underline-offset-4 decoration-dashed',
+  contradicted: 'bg-rose-100 decoration-rose-500 decoration-2 underline underline-offset-4 decoration-wavy',
 };
 
 const STATUS_BADGES: Record<NonNullable<Verdict['status']>, string> = {
@@ -34,7 +34,7 @@ export function Sentence({ sentence, sources, onOpenConflict }: Props) {
     );
   }
 
-  const baseClass = `${STATUS_STYLES[verdict.status]} px-0.5 rounded-sm cursor-help`;
+  const baseClass = `${STATUS_STYLES[verdict.status]} verdict-in px-0.5 rounded-sm cursor-help transition-colors`;
   const supportingSource = verdict.supportingSourceId
     ? sourceById.get(verdict.supportingSourceId)
     : undefined;

@@ -36,7 +36,7 @@ export function Message({ message, onOpenConflict }: Props) {
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-3xl space-y-3 rounded-2xl rounded-bl-sm border border-stone-200 bg-white px-5 py-4 shadow-sm">
+      <div className="w-full max-w-3xl space-y-3 rounded-2xl rounded-bl-sm border border-stone-200 bg-white/95 px-5 py-4 shadow-sm ring-1 ring-stone-100/60 backdrop-blur-sm">
         <div className="text-sm leading-relaxed text-stone-800">
           {sentences.map((s) => (
             <Sentence

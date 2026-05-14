@@ -37,8 +37,9 @@ export function Composer() {
               key={s}
               onClick={() => void sendMessage(s)}
               disabled={isSending}
-              className="rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-600 hover:border-stone-400 hover:text-stone-900 disabled:opacity-50"
+              className="group rounded-full border border-stone-200 bg-white/80 px-3 py-1.5 text-xs text-stone-600 shadow-sm backdrop-blur-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-white hover:text-stone-900 hover:shadow disabled:translate-y-0 disabled:opacity-50"
             >
+              <span className="mr-1.5 text-emerald-500 opacity-0 transition group-hover:opacity-100">›</span>
               {s}
             </button>
           ))}
@@ -46,7 +47,7 @@ export function Composer() {
       )}
       <form
         onSubmit={submit}
-        className="flex items-end gap-2 rounded-2xl border border-stone-300 bg-white px-3 py-2 shadow-sm focus-within:border-stone-500"
+        className="flex items-end gap-2 rounded-2xl border border-stone-300 bg-white/90 px-3 py-2 shadow-md backdrop-blur transition focus-within:border-emerald-400 focus-within:shadow-lg focus-within:ring-2 focus-within:ring-emerald-100"
       >
         <textarea
           value={text}
@@ -60,11 +61,24 @@ export function Composer() {
         <button
           type="submit"
           disabled={isSending || !text.trim()}
-          className="rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-stone-700 active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
         >
-          {isSending ? 'sending…' : 'send'}
+          {isSending ? (
+            <>
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
+              sending…
+            </>
+          ) : (
+            <>
+              send
+              <span aria-hidden>↵</span>
+            </>
+          )}
         </button>
       </form>
+      <p className="mt-2 text-center text-[10px] text-stone-400">
+        Enter to send · Shift+Enter for newline
+      </p>
     </div>
   );
 }

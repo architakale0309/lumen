@@ -4,7 +4,9 @@
       "Bash(npm view *)",
       "Bash(winget show *)",
       "PowerShell(winget list *)",
-      "PowerShell(winget uninstall *)"
+      "PowerShell(winget uninstall *)",
+      "Bash(npm test *)",
+      "Bash(git config *)"
     ]
   }
 }
