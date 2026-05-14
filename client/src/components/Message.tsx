@@ -17,7 +17,18 @@ export function Message({ message, onOpenConflict }: Props) {
       </div>
     );
   }
+  return <AssistantMessage message={message} onOpenConflict={onOpenConflict} />;
+}
 
+type AssistantMessageType = Extract<ClientMessage, { role: 'assistant' }>;
+
+function AssistantMessage({
+  message,
+  onOpenConflict,
+}: {
+  message: AssistantMessageType;
+  onOpenConflict: (sentence: ClientSentence) => void;
+}) {
   const sentences = message.sentences.slice().sort((a, b) => a.index - b.index);
   const counts = useMemo(() => {
     const c = { supported: 0, partial: 0, unsupported: 0, contradicted: 0, pending: 0 };

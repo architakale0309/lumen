@@ -55,6 +55,15 @@ What's covered:
 
 Tests do not call Gemini — no API key required to run them.
 
+## Linting
+
+ESLint (flat config, v9) with TypeScript and React-hooks rules covers all three workspaces:
+
+```bash
+npm run lint        # check
+npm run lint:fix    # auto-fix what's safe
+```
+
 ## Configuration (server\.env)
 
 ```

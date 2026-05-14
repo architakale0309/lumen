@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import type { Source } from '@lumen/shared';
 import { useStore, type ClientSentence } from '../store';
 import { Message } from './Message';
 import { ConflictModal } from './ConflictModal';
 
+type ConflictState = { sentence: ClientSentence; sources: Source[] };
+
 export function Chat() {
   const messages = useStore((s) => s.messages);
   const isSending = useStore((s) => s.isSending);
-  const [conflictSentence, setConflictSentence] = useState<ClientSentence | null>(null);
-  const conflictSourcesRef = useRef<{ sentence: ClientSentence; sources: any[] } | null>(null);
+  const [conflict, setConflict] = useState<ConflictState | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,15 +20,11 @@ export function Chat() {
     const owner = messages.find(
       (m) => m.role === 'assistant' && m.sentences.some((s) => s.index === sentence.index && s.text === sentence.text),
     );
-    if (owner && owner.role === 'assistant') {
-      conflictSourcesRef.current = { sentence, sources: owner.sources };
-    }
-    setConflictSentence(sentence);
+    setConflict({ sentence, sources: owner?.role === 'assistant' ? owner.sources : [] });
   };
 
   const closeConflict = () => {
-    setConflictSentence(null);
-    conflictSourcesRef.current = null;
+    setConflict(null);
   };
 
   return (
@@ -59,8 +57,8 @@ export function Chat() {
         ))}
       </div>
       <ConflictModal
-        sentence={conflictSentence}
-        sources={conflictSourcesRef.current?.sources ?? []}
+        sentence={conflict?.sentence ?? null}
+        sources={conflict?.sources ?? []}
         onClose={closeConflict}
       />
     </div>

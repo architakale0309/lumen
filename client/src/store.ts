@@ -16,7 +16,9 @@ function loadAccessToken(): string | null {
     const token = decodeURIComponent(match[1]);
     try {
       window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
-    } catch {}
+    } catch {
+      // localStorage may be unavailable (private mode, blocked) — token still works for this session
+    }
     const cleanedHash = hash.replace(/([#&])?token=[^&]+/, '$1').replace(/^#$/, '');
     window.history.replaceState(null, '', window.location.pathname + window.location.search + cleanedHash);
     return token;
