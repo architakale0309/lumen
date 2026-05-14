@@ -1,14 +1,14 @@
-import { GoogleGenAI } from '@google/genai';
+import Anthropic from '@anthropic-ai/sdk';
 import type { CitedSpan, ChatMessage, Source } from '@lumen/shared';
 import { SentenceBuffer, type FinalizedSentence } from './sentenceBuffer.js';
 import { SseWriter } from './sse.js';
 import { Semaphore, verifyClaim } from './verifier.js';
-import { fetchPage, findBestSnippet } from './pageFetcher.js';
 
-const PRIMARY_MODEL = process.env.PRIMARY_MODEL ?? 'gemini-2.5-pro';
+const PRIMARY_MODEL = process.env.PRIMARY_MODEL ?? 'claude-opus-4-7';
 const MAX_VERIFIER_CONCURRENCY = Number(process.env.MAX_VERIFIER_CONCURRENCY ?? 6);
+const MAX_OUTPUT_TOKENS = Number(process.env.MAX_OUTPUT_TOKENS ?? 4096);
 
-const SYSTEM_PROMPT = `You are a helpful research assistant. Use Google Search to ground your answers in current sources.
+const SYSTEM_PROMPT = `You are a helpful research assistant. Use the web_search tool to ground your answers in current sources.
 
 Guidelines:
 - Answer in short, clear sentences. Avoid one giant paragraph — break thoughts apart with periods so each claim is its own sentence.
@@ -16,29 +16,25 @@ Guidelines:
 - When sources disagree, say so explicitly in a dedicated sentence.
 - Avoid filler ("Let me search for that...") — get to the answer.`;
 
-type GroundingChunk = { web?: { uri?: string; title?: string } };
-type GroundingSupport = {
-  segment?: { startIndex?: number; endIndex?: number; text?: string };
-  groundingChunkIndices?: number[];
+type CitationRecord = {
+  sourceId: string;
+  citedText: string;
+  responseStart: number;
+  responseEnd: number;
 };
 
 export async function streamChat(
   messages: ChatMessage[],
   writer: SseWriter,
 ): Promise<void> {
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' });
 
   const sentenceBuf = new SentenceBuffer();
   const sentences: FinalizedSentence[] = [];
-  let latestGrounding: {
-    chunks: GroundingChunk[];
-    supports: GroundingSupport[];
-  } | null = null;
 
-  const contents = messages.map((m) => ({
-    role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }));
+  const sources = new Map<string, Source>();
+  const urlToSourceId = new Map<string, string>();
+  const citationRecords: CitationRecord[] = [];
 
   const emitSentenceEnd = (s: FinalizedSentence) => {
     sentences.push(s);
@@ -50,97 +46,136 @@ export async function streamChat(
     });
   };
 
-  let stream;
-  try {
-    stream = await ai.models.generateContentStream({
-      model: PRIMARY_MODEL,
-      contents,
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        tools: [{ googleSearch: {} }],
-      },
-    });
-  } catch (err) {
-    writer.send({
-      type: 'error',
-      message: `failed to start stream: ${(err as Error).message}`,
-    });
-    writer.send({ type: 'done' });
-    writer.close();
-    return;
-  }
+  const registerSource = (url: string, title?: string): string => {
+    const existing = urlToSourceId.get(url);
+    if (existing) return existing;
+    const id = `s${sources.size + 1}`;
+    sources.set(id, { id, url, title: title || url });
+    urlToSourceId.set(url, id);
+    return id;
+  };
+
+  const apiMessages: Anthropic.MessageParam[] = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
 
   try {
-    for await (const chunk of stream) {
-      const text = chunk.text;
-      if (text) {
-        writer.send({ type: 'token', text });
-        const finished = sentenceBuf.push(text);
-        for (const s of finished) emitSentenceEnd(s);
-      }
-      const gm = chunk.candidates?.[0]?.groundingMetadata;
-      if (gm) {
-        latestGrounding = {
-          chunks: (gm.groundingChunks ?? []) as GroundingChunk[],
-          supports: (gm.groundingSupports ?? []) as GroundingSupport[],
-        };
+    const stream = client.messages.stream({
+      model: PRIMARY_MODEL,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      system: SYSTEM_PROMPT,
+      tools: [
+        {
+          type: 'web_search_20250305',
+          name: 'web_search',
+          max_uses: 5,
+        },
+      ],
+      messages: apiMessages,
+    });
+
+    let cumulativeText = '';
+    let currentBlockTextStart = 0;
+    for await (const event of stream) {
+      if (event.type === 'content_block_start') {
+        currentBlockTextStart = cumulativeText.length;
+      } else if (event.type === 'content_block_delta') {
+        const delta = event.delta as Anthropic.RawContentBlockDeltaEvent['delta'];
+        if (delta.type === 'text_delta') {
+          const text = delta.text;
+          cumulativeText += text;
+          writer.send({ type: 'token', text });
+          const finished = sentenceBuf.push(text);
+          for (const s of finished) emitSentenceEnd(s);
+        } else if (delta.type === 'citations_delta') {
+          const citation = (delta as { citation: unknown }).citation as
+            | {
+                type?: string;
+                url?: string;
+                title?: string;
+                cited_text?: string;
+                start_char_index?: number;
+                end_char_index?: number;
+              }
+            | undefined;
+          if (citation?.url && citation.cited_text) {
+            const sourceId = registerSource(citation.url, citation.title);
+            const localStart = citation.start_char_index ?? 0;
+            const localEnd = citation.end_char_index ?? cumulativeText.length - currentBlockTextStart;
+            citationRecords.push({
+              sourceId,
+              citedText: citation.cited_text,
+              responseStart: currentBlockTextStart + localStart,
+              responseEnd: currentBlockTextStart + localEnd,
+            });
+            writer.send({
+              type: 'citation',
+              sourceId,
+              citedText: citation.cited_text,
+            });
+          }
+        }
       }
     }
+
     for (const s of sentenceBuf.flush()) emitSentenceEnd(s);
 
-    // Build source list from grounding chunks
-    const sources = new Map<string, Source>();
-    const chunkIndexToSourceId = new Map<number, string>();
-    if (latestGrounding) {
-      latestGrounding.chunks.forEach((c, i) => {
-        const web = c.web;
-        if (!web?.uri) return;
-        const id = `s${sources.size + 1}`;
-        sources.set(id, {
-          id,
-          url: web.uri,
-          title: web.title || web.uri,
+    // Final message backfill in case any citation arrived only at message close
+    const finalMessage = await stream.finalMessage();
+    for (const block of finalMessage.content) {
+      if (block.type !== 'text' || !block.citations) continue;
+      for (const c of block.citations) {
+        if (c.type !== 'web_search_result_location') continue;
+        const { url, cited_text: citedText, title } = c;
+        if (!url || !citedText) continue;
+        const alreadyRecorded = citationRecords.some(
+          (r) => r.citedText === citedText && sources.get(r.sourceId)?.url === url,
+        );
+        if (alreadyRecorded) continue;
+        const sourceId = registerSource(url, title ?? undefined);
+        citationRecords.push({
+          sourceId,
+          citedText,
+          responseStart: -1,
+          responseEnd: -1,
         });
-        chunkIndexToSourceId.set(i, id);
-      });
+        writer.send({ type: 'citation', sourceId, citedText });
+      }
     }
+
     if (sources.size > 0) {
       writer.send({ type: 'sources', sources: Array.from(sources.values()) });
     }
 
-    // Map each sentence to grounded source ids via segment overlap
-    const sentenceSources = new Map<number, Set<string>>();
-    if (latestGrounding) {
-      for (const s of sentences) {
-        const set = new Set<string>();
-        for (const sup of latestGrounding.supports) {
-          const seg = sup.segment;
-          if (!seg) continue;
-          const segStart = seg.startIndex ?? -1;
-          const segEnd = seg.endIndex ?? -1;
-          if (segStart < 0 || segEnd < 0) continue;
-          if (segStart < s.end && segEnd > s.start) {
-            for (const idx of sup.groundingChunkIndices ?? []) {
-              const sid = chunkIndexToSourceId.get(idx);
-              if (sid) set.add(sid);
-            }
-          }
-        }
-        sentenceSources.set(s.index, set);
-      }
+    // Index citations by source, and map each sentence to its overlapping citations.
+    const citationsBySource = new Map<string, string[]>();
+    for (const r of citationRecords) {
+      const list = citationsBySource.get(r.sourceId) ?? [];
+      if (!list.includes(r.citedText)) list.push(r.citedText);
+      citationsBySource.set(r.sourceId, list);
     }
 
-    // For each sentence: fetch grounded pages, extract snippet, verify
-    const semaphore = new Semaphore(MAX_VERIFIER_CONCURRENCY);
-    const citationsBySource = new Map<string, string[]>();
-    const verifierTasks: Promise<void>[] = [];
-
+    const sentenceCitations = new Map<number, CitedSpan[]>();
     for (const s of sentences) {
-      const sourceIds = Array.from(sentenceSources.get(s.index) ?? new Set<string>());
-      const task = (async () => {
+      const attached: CitedSpan[] = [];
+      for (const r of citationRecords) {
+        if (r.responseStart < 0) continue;
+        if (r.responseStart < s.end && r.responseEnd > s.start) {
+          attached.push({ sourceId: r.sourceId, citedText: r.citedText });
+        }
+      }
+      sentenceCitations.set(s.index, attached);
+    }
+
+    const semaphore = new Semaphore(MAX_VERIFIER_CONCURRENCY);
+    const allSources = Array.from(sources.values());
+
+    const verifierTasks = sentences.map((s) =>
+      (async () => {
         const release = await semaphore.acquire();
         try {
-          if (sources.size === 0) {
+          if (allSources.length === 0) {
             writer.send({
               type: 'sentence_verdict',
               index: s.index,
@@ -148,36 +183,12 @@ export async function streamChat(
             });
             return;
           }
-          if (sourceIds.length === 0) {
-            writer.send({
-              type: 'sentence_verdict',
-              index: s.index,
-              verdict: { status: 'unsupported', rationale: 'no grounding for this sentence' },
-            });
-            return;
-          }
 
-          const attached: CitedSpan[] = [];
-          await Promise.all(
-            sourceIds.map(async (sid) => {
-              const src = sources.get(sid);
-              if (!src) return;
-              const page = await fetchPage(src.url);
-              if (!page) return;
-              const snippet = findBestSnippet(s.text, page.sentences);
-              if (!snippet) return;
-              attached.push({ sourceId: sid, citedText: snippet });
-              const list = citationsBySource.get(sid) ?? [];
-              list.push(snippet);
-              citationsBySource.set(sid, list);
-              writer.send({ type: 'citation', sourceId: sid, citedText: snippet });
-            }),
-          );
-
+          const attached = sentenceCitations.get(s.index) ?? [];
           const verdict = await verifyClaim({
             claim: s.text,
             attachedCitations: attached,
-            allSources: Array.from(sources.values()),
+            allSources,
             allCitations: citationsBySource,
           });
           writer.send({ type: 'sentence_verdict', index: s.index, verdict });
@@ -193,9 +204,8 @@ export async function streamChat(
         } finally {
           release();
         }
-      })();
-      verifierTasks.push(task);
-    }
+      })(),
+    );
 
     await Promise.allSettled(verifierTasks);
     writer.send({ type: 'done' });

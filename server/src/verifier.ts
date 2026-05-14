@@ -1,34 +1,35 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import Anthropic from '@anthropic-ai/sdk';
 import type { CitedSpan, Source, Verdict, VerdictStatus } from '@lumen/shared';
 
-const VERIFIER_MODEL = process.env.VERIFIER_MODEL ?? 'gemini-2.5-flash';
+const VERIFIER_MODEL = process.env.VERIFIER_MODEL ?? 'claude-haiku-4-5';
 
-const SYSTEM_PROMPT = `You are a strict fact-checker. Given a claim from an AI assistant's response and snippets extracted from the web sources it was grounded against, decide whether the claim is supported by those snippets.
+const SYSTEM_PROMPT = `You are a strict fact-checker. Given a claim from an AI assistant's response and verbatim quotes extracted from the web sources it cited, decide whether the claim is supported by those quotes.
 
 Categories:
-- "supported": at least one snippet clearly substantiates the claim.
-- "partial": snippets partially support the claim but miss key qualifiers, numbers, or specifics.
-- "unsupported": the snippets are not relevant to the claim, or no snippet addresses it.
-- "contradicted": at least one snippet directly disagrees with the claim.
+- "supported": at least one quote clearly substantiates the claim.
+- "partial": quotes partially support the claim but miss key qualifiers, numbers, or specifics.
+- "unsupported": the quotes are not relevant to the claim, or no quote addresses it.
+- "contradicted": at least one quote directly disagrees with the claim.
 
-Quotes must be VERBATIM substrings of the provided snippets. If no verbatim quote fits, omit the quote fields.
-Use ONLY the provided snippets. Do NOT rely on outside knowledge.
+Quotes you return must be VERBATIM substrings of the provided quotes. If no verbatim quote fits, omit the quote fields.
+Use ONLY the provided quotes. Do NOT rely on outside knowledge.
 For purely rhetorical or transitional sentences ("Let me explain", "Here's what I found"), return "unsupported" with rationale "non-factual".`;
 
 const VERDICT_SCHEMA = {
-  type: Type.OBJECT,
+  type: 'object' as const,
   properties: {
     status: {
-      type: Type.STRING,
+      type: 'string',
       enum: ['supported', 'partial', 'unsupported', 'contradicted'],
     },
-    rationale: { type: Type.STRING },
-    supportingSourceId: { type: Type.STRING },
-    supportingQuote: { type: Type.STRING },
-    conflictingSourceId: { type: Type.STRING },
-    conflictingQuote: { type: Type.STRING },
+    rationale: { type: 'string' },
+    supportingSourceId: { type: 'string' },
+    supportingQuote: { type: 'string' },
+    conflictingSourceId: { type: 'string' },
+    conflictingQuote: { type: 'string' },
   },
   required: ['status', 'rationale'],
+  additionalProperties: false,
 };
 
 type VerifierInput = {
@@ -38,7 +39,7 @@ type VerifierInput = {
   allCitations: Map<string, string[]>;
 };
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? '' });
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' });
 
 export async function verifyClaim(input: VerifierInput): Promise<Verdict> {
   const sourceLines = input.allSources
@@ -47,8 +48,8 @@ export async function verifyClaim(input: VerifierInput): Promise<Verdict> {
       const citedJoined =
         cited.length > 0
           ? cited.map((c) => JSON.stringify(c)).join('\n      ')
-          : '(no snippet extracted from this source)';
-      return `- id: ${s.id}\n  title: ${s.title}\n  url: ${s.url}\n  snippets:\n      ${citedJoined}`;
+          : '(no quote attached to this source)';
+      return `- id: ${s.id}\n  title: ${s.title}\n  url: ${s.url}\n  quotes:\n      ${citedJoined}`;
     })
     .join('\n');
 
@@ -57,57 +58,52 @@ export async function verifyClaim(input: VerifierInput): Promise<Verdict> {
       ? input.attachedCitations
           .map((c) => `- source ${c.sourceId}: ${JSON.stringify(c.citedText)}`)
           .join('\n')
-      : '(none — no snippet matched this sentence)';
+      : '(none — no quote attached to this sentence)';
 
   const userPrompt = `<claim>${input.claim}</claim>
 
-<attached_snippets>
+<attached_quotes>
 ${attached}
-</attached_snippets>
+</attached_quotes>
 
 <all_sources>
 ${sourceLines}
 </all_sources>
 
-Return JSON only.`;
+Call the record_verdict tool with your decision.`;
 
-  let raw: string;
   try {
-    const response = await ai.models.generateContent({
+    const response = await client.messages.create({
       model: VERIFIER_MODEL,
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        responseMimeType: 'application/json',
-        responseSchema: VERDICT_SCHEMA,
-      },
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      tools: [
+        {
+          name: 'record_verdict',
+          description: 'Record the fact-check verdict for this claim.',
+          input_schema: VERDICT_SCHEMA,
+        },
+      ],
+      tool_choice: { type: 'tool', name: 'record_verdict' },
+      messages: [{ role: 'user', content: userPrompt }],
     });
-    raw = response.text ?? '';
+
+    const toolUse = response.content.find(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+    );
+    if (!toolUse) {
+      return { status: 'unsupported', rationale: 'verifier returned no tool call' };
+    }
+    return normalizeVerdict(toolUse.input as Record<string, unknown>);
   } catch (err) {
     return {
       status: 'unsupported',
       rationale: `verifier error: ${(err as Error).message}`,
     };
   }
-
-  return parseVerdict(raw);
 }
 
-function parseVerdict(raw: string): Verdict {
-  let obj: any;
-  try {
-    obj = JSON.parse(raw);
-  } catch {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (!match) {
-      return { status: 'unsupported', rationale: 'verifier returned no JSON' };
-    }
-    try {
-      obj = JSON.parse(match[0]);
-    } catch {
-      return { status: 'unsupported', rationale: 'verifier returned invalid JSON' };
-    }
-  }
+function normalizeVerdict(obj: Record<string, unknown>): Verdict {
   return {
     status: normalizeStatus(obj.status),
     rationale: typeof obj.rationale === 'string' ? obj.rationale : '',
