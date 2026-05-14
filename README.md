@@ -73,16 +73,6 @@ lumen/
         └── ConflictModal.tsx       side-by-side disagreement viewer
 ```
 
-## Demo script (for the video)
-
-1. **Hook (10s):** "LLMs hallucinate. Here you can see — sentence by sentence — which claims a search agent is actually grounding in sources, and where the sources disagree."
-2. **Easy query (30s):** *"What's the latest on the James Webb Space Telescope?"*
-   Watch the streaming text light up green as each sentence is verified. Hover one — the exact supporting quote appears.
-3. **Contested query (40s):** *"Is intermittent fasting effective for weight loss?"*
-   At least one sentence should come back as ⚡ contradicted. Click it — side-by-side modal shows the conflicting source quotes.
-4. **Adversarial (20s):** ask something obscure enough that the model invents detail. The fabricated sentence turns ✗ red; the popover says "no source support found."
-5. **Business impact (20s):** trust is the bottleneck for LLM adoption in research, healthcare, legal, finance. Verifiable AI unlocks those use cases.
-
 ## Tech stack & why
 
 | Layer | Choice | Reason |
