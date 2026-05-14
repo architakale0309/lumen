@@ -2,6 +2,18 @@
 
 Chat with an internet-search-capable agent. A second model fact-checks every sentence against the retrieved sources — surfacing supported claims, unsupported claims, and disagreements between sources.
 
+**Live demo:**
+
+```
+https://lumen-pjrt.onrender.com/#token=lumen-demo-dont-spam
+```
+
+[Open in browser ↗](https://lumen-pjrt.onrender.com/#token=lumen-demo-dont-spam)
+
+> Free-tier hosting — first request after idle takes ~30s to wake. Please don't spam: this runs on a personal Gemini API quota.
+
+![Lumen screenshot](docs/screenshot.png)
+
 ## What you're seeing
 
 - **Primary agent** (Gemini 2.5 Pro + `googleSearch` grounding tool) streams an answer.

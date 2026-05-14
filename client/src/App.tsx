@@ -27,6 +27,9 @@ export default function App() {
             source ↗
           </a>
         </div>
+        <div className="border-t border-amber-200/60 bg-amber-50/80 px-4 py-1.5 text-center text-[11px] text-amber-800">
+          Demo running on a personal API key — please don't spam. First request after idle may take ~30s.
+        </div>
       </header>
       <Chat />
       <Composer />
