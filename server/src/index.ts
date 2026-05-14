@@ -53,8 +53,8 @@ app.post('/api/chat', async (c) => {
 app.use('/*', serveStatic({ root: './client/dist' }));
 
 const port = Number(process.env.PORT ?? 8787);
-if (!process.env.GEMINI_API_KEY) {
-  console.warn('[warn] GEMINI_API_KEY is not set — /api/chat will fail.');
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn('[warn] ANTHROPIC_API_KEY is not set — /api/chat will fail.');
 }
 if (!ACCESS_TOKEN) {
   console.warn('[warn] LUMEN_ACCESS_TOKEN is not set — /api/chat is publicly accessible.');
