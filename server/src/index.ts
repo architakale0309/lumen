@@ -10,8 +10,8 @@ import type { ChatRequest } from '@lumen/shared';
 const app = new Hono();
 const ACCESS_TOKEN = process.env.LUMEN_ACCESS_TOKEN;
 
-const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 7);
-const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60 * 60 * 1000);
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 10);
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000);
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 
 function getClientIp(c: Context): string {

@@ -10,7 +10,7 @@ https://lumen-pjrt.onrender.com/#token=lumen-demo-dont-spam
 
 [Open in browser ↗](https://lumen-pjrt.onrender.com/#token=lumen-demo-dont-spam)
 
-> Free-tier hosting — first request after idle takes ~30s to wake. Please don't spam: this runs on a personal Anthropic API quota.
+> Free-tier hosting — first request after idle takes ~30s to wake. Please don't spam: this runs on a personal Anthropic API quota. For demo safety, `/api/chat` is rate-limited to 10 requests per IP per 15 minutes.
 
 ![Lumen screenshot](docs/demo-search-chat.png)
 
@@ -72,6 +72,8 @@ VERIFIER_MODEL=claude-haiku-4-5
 MAX_VERIFIER_CONCURRENCY=6
 MAX_OUTPUT_TOKENS=4096
 PORT=8787
+RATE_LIMIT_MAX=10             # per-IP cap on /api/chat (defaults to 10 for the demo)
+RATE_LIMIT_WINDOW_MS=900000   # window length in ms (defaults to 15 minutes)
 ```
 
 ## Project layout
