@@ -116,6 +116,15 @@ export const useStore = create<Store>((set, get) => ({
         },
         body: requestBody,
       });
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers.get('retry-after') ?? 0);
+        const minutes = retryAfter > 0 ? Math.max(1, Math.ceil(retryAfter / 60)) : null;
+        throw new Error(
+          minutes
+            ? `Demo limit reached — please try again in ~${minutes} minute${minutes === 1 ? '' : 's'}.`
+            : 'Demo limit reached — please try again later.',
+        );
+      }
       if (!response.ok || !response.body) {
         throw new Error(`HTTP ${response.status}`);
       }
